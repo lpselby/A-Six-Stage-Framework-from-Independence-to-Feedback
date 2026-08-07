@@ -10,6 +10,8 @@ library(dplyr)
 library(geepack)
 library(brms)
 library(ggplot2)
+library(posterior)
+library(bayesplot)
 
 # -------------------------------
 # Reproducibility
@@ -36,6 +38,24 @@ gamma2 <- 0.4
 gamma3 <- 0.3
 
 # -------------------------------
+# Prior settings for Stage 5
+# -------------------------------
+priors_stage5 <- c(
+  set_prior("normal(0, 1000)", class = "b", resp = "Y"),
+  set_prior("normal(0, 1000)", class = "b", resp = "Z"),
+  set_prior("student_t(3, 0, 2.5)", class = "sd"),
+  set_prior("student_t(3, 0, 2.5)", class = "sigma", resp = "Z")
+)
+
+# Alternative priors for sensitivity analysis
+priors_alt <- c(
+  set_prior("normal(0, 500)", class = "b", resp = "Y"),
+  set_prior("normal(0, 500)", class = "b", resp = "Z"),
+  set_prior("student_t(3, 0, 2.5)", class = "sd"),
+  set_prior("student_t(3, 0, 2.5)", class = "sigma", resp = "Z")
+)
+
+# -------------------------------
 # Storage
 # -------------------------------
 beta3_s1 <- numeric(nsim)
@@ -55,24 +75,8 @@ beta3_s5 <- numeric(nsim)
 lower_s5 <- numeric(nsim)
 upper_s5 <- numeric(nsim)
 
-# -------------------------------
-# Optional: explicit priors for Stage 5
-# Replace these with the exact priors you want to document in Appendix A.
-# brms prior specification is handled via set_prior()/prior().
-# -------------------------------
-priors_stage5 <- c(
-  # Weakly informative priors for regression coefficients
-  set_prior("normal(0, 1000)", class = "b", resp = "Y"),
-  set_prior("normal(0, 1000)", class = "b", resp = "Z"),
-
-  # Weakly informative priors for group-level SDs
-  # Replace if you want the appendix to say something different.
-  set_prior("student_t(3, 0, 2.5)", class = "sd", resp = "Y"),
-  set_prior("student_t(3, 0, 2.5)", class = "sd", resp = "Z"),
-
-  # Residual SD for the Gaussian Z model
-  set_prior("student_t(3, 0, 2.5)", class = "sigma", resp = "Z")
-)
+model5_ref <- NULL
+data_ref   <- NULL
 
 # ============================================================
 # Monte Carlo loop
@@ -232,7 +236,6 @@ for (s in 1:nsim) {
   # --------------------------------
   # Stage 5: Bayesian joint hierarchical model
   # --------------------------------
-  # Same joint model structure, but with explicit priors for the appendix.
   model5 <- brm(
     f_y + f_z + set_rescor(FALSE),
     data = data_s4,
@@ -249,6 +252,11 @@ for (s in 1:nsim) {
   beta3_s5[s] <- ps5[1, "Estimate"]
   lower_s5[s] <- ps5[1, "Q2.5"]
   upper_s5[s] <- ps5[1, "Q97.5"]
+
+  if (s == nsim) {
+    model5_ref <- model5
+    data_ref <- data_s4
+  }
 }
 
 # ============================================================
@@ -287,14 +295,39 @@ bias_s5 <- mean(beta3_s5 - true_beta3, na.rm = TRUE)
 rmse_s5 <- sqrt(mean((beta3_s5 - true_beta3)^2, na.rm = TRUE))
 coverage_s5 <- mean(lower_s5 <= true_beta3 & upper_s5 >= true_beta3, na.rm = TRUE)
 
-# Print summaries
-list(
+results <- list(
   stage1 = c(bias = bias_s1, rmse = rmse_s1, coverage = coverage_s1),
   stage2 = c(bias = bias_s2, rmse = rmse_s2, coverage = coverage_s2),
   stage3 = c(bias = bias_s3, rmse = rmse_s3, coverage = coverage_s3),
   stage4 = c(bias = bias_s4, rmse = rmse_s4, coverage = coverage_s4),
   stage5 = c(bias = bias_s5, rmse = rmse_s5, coverage = coverage_s5)
 )
+
+print(results)
+
+# ============================================================
+# Representative Stage 5 diagnostics and sensitivity analysis
+# ============================================================
+if (!is.null(model5_ref)) {
+  draws5 <- as_draws_df(model5_ref)
+  diag5 <- summarise_draws(draws5, "rhat", "ess_bulk", "ess_tail")
+  print(diag5)
+
+  color_scheme_set("blue")
+  print(
+    mcmc_trace(
+      as.array(model5_ref),
+      pars = c("b_Y_Z")
+    )
+  )
+
+  model5_alt <- update(
+    model5_ref,
+    prior = priors_alt,
+    recompile = FALSE
+  )
+  print(summary(model5_alt))
+}
 
 # ============================================================
 # Optional: Stage 1 sampling distribution plot
