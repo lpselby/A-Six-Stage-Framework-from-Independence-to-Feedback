@@ -1,5 +1,5 @@
 # ============================================================
-# A Six-Stage Framework from Independence to Feedback
+# A Staged Framework from Independence to Feedback
 # Reproducible simulation script
 # ============================================================
 
